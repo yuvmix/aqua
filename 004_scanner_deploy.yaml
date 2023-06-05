@@ -1,0 +1,103 @@
+#---
+#apiVersion: v1
+#kind: PersistentVolumeClaim
+#metadata:
+#  name: aqua-scanner-pvc
+#  namespace: aqua
+#spec:
+#  accessModes:
+#    - ReadWriteOnce
+#  resources:
+#    requests:
+#      storage: 20Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aqua-scanner
+  namespace: aqua
+  labels:
+    app: aqua-scanner
+    aqua.component: scanner
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: aqua-scanner
+        aqua.component: scanner
+    spec:
+      serviceAccountName: aqua-sa
+      securityContext:
+        runAsUser: 11431
+        runAsGroup: 11433
+        fsGroup: 11433
+      containers:
+        - name: kube-scanner
+          image: registry.aquasec.com/scanner:2022.4
+          imagePullPolicy: Always
+#          resources:
+#            limits:
+#              cpu: 2000m
+#              memory: 1Gi
+#            requests:
+#              cpu: 1000m
+#              memory: 512Mi
+          command: ["/bin/sh"]
+          args: ["-c", "/opt/aquasec/scannercli daemon --host https://${AQUA_SERVER} --user ${AQUA_SCANNER_USERNAME} --password ${AQUA_SCANNER_PASSWORD} --no-verify"]
+          env:
+            - name: AQUA_SCANNER_LOGICAL_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            # Optional environment variable, to set the max amount of consecutive attempts before back off. There will be a random interval between connection attempts.
+            # (This and AQUA_CONNECTIVITY_BACKOFF_DURATION should both be set to trigger the backoff mechanism)
+            #- name: AQUA_MAX_CONSECUTIVE_CONNECTION_ATTEMPTS
+            #  value: "5"
+            # Optional environment variable, to set the amount of time (in seconds) in which there is no attempt to connect.
+            # Once this duration passes, the reconnect mechanisim will be triggered again till max attempts.
+            #- name: AQUA_CONNECTIVITY_BACKOFF_DURATION
+            #  value: "120"
+          envFrom:
+          - secretRef:
+              name: aqua-scanner
+          - configMapRef:
+              name: aqua-scanner-config
+          volumeMounts:
+            #- name: "docker-socket-mount"
+            #  mountPath: "/var/run/docker.sock"
+            - name: "ssl-certs"
+              mountPath: "/etc/ssl/certs/aqua-ssl.crt"
+#            - mountPath: /opt/aquascans
+#              name: aquascans
+#            - mountPath: /opt/aquasec/ssl
+#              name: aqua-grpc-scanner
+#              readOnly: true
+      volumes:
+        #- name: "docker-socket-mount"
+        #  hostPath:
+        #    path: "/var/run/docker.sock"
+        - name: "ssl-certs"
+          secret:
+            secretName: "aqua-scanner"
+            items:
+            - key: aqua-web-root-cert
+              path: aqua-ssl.crt
+#        - name: aquascans
+#          persistentVolumeClaim:
+#            claimName: aqua-scanner-pvc
+#        - name: aqua-grpc-scanner
+#          secret:
+#            secretName: aqua-grpc-scanner
+#            items:
+#            - key: aqua_scanner.crt
+#              path: cert.pem
+#            - key: aqua_scanner.key
+#              path: key.pem
+#            - key: rootCA.crt
+#              path: ca.pem
+      imagePullSecrets:
+        - name: aqua-registry
+  selector:
+    matchLabels:
+      app: aqua-scanner
